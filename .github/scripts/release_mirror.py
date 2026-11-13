@@ -56,7 +56,7 @@ class GitHub:
         try:
             with self.opener.open(Request(host + path, data, headers, method=method), timeout=180) as response:
                 result = response.read()
-                return result if binary else json.loads(result)
+                return result if binary else json.loads(result) if result else None
         except HTTPError as error:
             detail = error.read().decode(errors="replace")[:1000]
             if error.code == 404:
@@ -258,8 +258,20 @@ def run(api, tags, directory, evidence):
             tags.check("upstream", tag, locked)
 
         recheck_source()
-        tags.check("fork", tag, locked, allow_missing=True)
-        tags.sync(tag, locked)
+        if not tags.check("fork", tag, locked, allow_missing=True):
+            workflow_path = f"/repos/{FORK}/actions/workflows/release.yml"
+            workflow = api.request("GET", workflow_path)
+            if workflow["state"] != "active":
+                raise MirrorError("Mirror workflow must be active before pausing its tag trigger")
+            report["workflow_paused_for_tag"] = True
+            save()
+            api.request("PUT", workflow_path + "/disable")
+            try:
+                tags.sync(tag, locked)
+            finally:
+                api.request("PUT", workflow_path + "/enable")
+                report["workflow_paused_for_tag"] = False
+                save()
         timestamp = datetime.now(timezone.utc).isoformat()
         body = (source.get("body") or "") + (
             f"\n\n---\n{MARKER}\n\n## Mirror provenance\n\n"

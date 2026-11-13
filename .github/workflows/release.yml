@@ -26,9 +26,14 @@ jobs:
         run: python3 -m unittest discover -s .github/scripts -p 'test_release_mirror.py' -v
       - name: Mirror and verify the locked upstream release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_MIRROR_TOKEN }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: python3 .github/scripts/release_mirror.py
+      - name: Restore mirror workflow after tag synchronization
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_MIRROR_TOKEN }}
+        run: gh workflow enable release.yml --repo "$GITHUB_REPOSITORY"
       - name: Preserve snapshot and verification evidence
         if: always()
         uses: actions/upload-artifact@v7

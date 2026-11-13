@@ -6,8 +6,13 @@ then locks that release ID, its original Git tag object and commit, and six
 Windows/Linux full/lite assets. A newer latest release during the run does not
 change its selected version.
 
-The runner uses Python's standard library and Git with the repository
-`GITHUB_TOKEN` and `contents: write`. Application dependency installation,
+The runner uses Python's standard library and Git. Publication uses the
+repository secret `RELEASE_MIRROR_TOKEN`, populated from the owner's authorized
+GitHub CLI OAuth token with `repo` and `workflow` scopes. This credential has
+the CLI token's repository access scope. The owner approved storing it for this
+workflow after the first real run encountered GitHub's workflow permission check.
+`GITHUB_TOKEN` cannot receive the Workflows write permission required to copy an
+upstream tag whose workflow differs from fork main. Application dependency installation,
 compilation, npm publication and Docker dispatch are absent from this workflow.
 The separate manual Docker/npm workflows are independent of the mirror path.
 
@@ -31,8 +36,12 @@ These fixtures do not exercise GitHub service outages or real concurrent edits.
 The optional `v*` push trigger only works when the pushed tag's source tree
 contains this workflow. An original upstream tag can contain an older workflow.
 The supported first entry point is manual dispatch from `main`. Tags pushed
-with `GITHUB_TOKEN` do not initiate another run. The current run publishes
-directly. No scheduled synchronization or upstream Actions invocation is used.
+with the OAuth token could trigger the original upstream build workflow. The
+mirror temporarily disables its own workflow around a missing-tag push and
+reenables it in a `finally` block and an always-run cleanup step. Existing runs
+continue while the workflow is disabled. The current run publishes directly.
+If a runner is lost during the pause, enable `release.yml` before retrying.
+No scheduled synchronization or upstream Actions invocation is used.
 
 Each run retains `release-mirror-evidence-<run>-<attempt>` for 30 days, including
 the release snapshot, upstream asset IDs, original tag object/commit, sizes,

@@ -70,6 +70,7 @@ class FakeAPI:
         self.change_release = False
         self.change_assets = False
         self.corrupt_download = False
+        self.workflow_state = "active"
 
     def request(self, method, path, data=None, binary=False, upload=False):
         parsed = urlparse(path)
@@ -93,7 +94,12 @@ class FakeAPI:
                 return [copy.deepcopy(self.target)] if self.target else []
             if route == f"/repos/{FORK}/releases/99":
                 return copy.deepcopy(self.target)
+            if route == f"/repos/{FORK}/actions/workflows/release.yml":
+                return {"state": self.workflow_state}
         self.writes.append((method, path))
+        if method == "PUT":
+            self.workflow_state = "disabled_manually" if route.endswith("/disable") else "active"
+            return None
         if upload:
             if len(self.target_assets) == self.fail_upload_at:
                 raise MirrorError("Interrupted upload")
@@ -152,11 +158,26 @@ class MirrorBehavior(unittest.TestCase):
         self.assertIn(MARKER, self.api.target["body"])
         self.assertFalse(self.api.target["draft"])
         self.assertEqual(self.tags.writes, 1)
+        self.assertEqual(self.api.workflow_state, "active")
+        pauses = [path for method, path in self.api.writes if path.endswith("/disable")]
+        self.assertEqual(len(pauses), 1)
         second = self.mirror()
         self.assertEqual(second["uploaded"], [])
         self.assertEqual(len(second["skipped"]), 6)
         self.assertEqual(ids, [asset["id"] for asset in self.api.target_assets])
         self.assertEqual(self.api.latest_calls, 2)
+        pauses = [path for method, path in self.api.writes if path.endswith("/disable")]
+        self.assertEqual(len(pauses), 1)
+
+    def test_tag_push_failure_restores_workflow(self):
+        def fail_sync(tag, locked):
+            raise MirrorError("tag push denied")
+
+        self.tags.sync = fail_sync
+        with self.assertRaisesRegex(MirrorError, "tag push denied"):
+            self.mirror()
+        self.assertEqual(self.api.workflow_state, "active")
+        self.assertIsNone(self.api.target)
 
     def test_no_formal_release(self):
         self.api.no_release = True
